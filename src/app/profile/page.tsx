@@ -94,15 +94,6 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Wallet info */}
-        {profile.walletAddress && (
-          <div className="card">
-            <h3 className="text-cream-200 font-bold mb-2">Wallet</h3>
-            <p className="text-cream-400 text-sm font-mono break-all">
-              {profile.walletAddress}
-            </p>
-          </div>
-        )}
       </div>
     </div>
   );
