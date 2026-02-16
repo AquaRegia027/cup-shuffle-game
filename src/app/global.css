@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    height: 100%;
+    scroll-behavior: smooth;
+  }
+  body {
+    height: 100%;
+    margin: 0;
+    background-color: #0A1628;
+    color: #F0F4F8;
+    font-family: 'Inter', system-ui, sans-serif;
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  body > div {
+    height: 100%;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-sea-500 text-cream-50 px-6 py-3 rounded-btn
+           flex items-center justify-center gap-2 font-semibold
+           hover:bg-sea-600 active:bg-sea-700
+           transition-colors duration-150 select-none;
+  }
+  .btn-secondary {
+    @apply bg-cream-200 text-sea-800 px-6 py-3 rounded-btn
+           flex items-center justify-center gap-2 font-semibold
+           hover:bg-cream-300 active:bg-cream-400
+           transition-colors duration-150 select-none;
+  }
+  .btn-ghost {
+    @apply bg-transparent text-cream-200 px-6 py-3 rounded-btn
+           flex items-center justify-center gap-2 font-semibold
+           hover:bg-sea-800/50 active:bg-sea-800
+           transition-colors duration-150 border border-cream-400/30 select-none;
+  }
+  .card {
+    @apply bg-sea-800/60 backdrop-blur-sm rounded-2xl p-4
+           border border-sea-700/30;
+  }
+}
