@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { GameBoard } from '@/components/game/GameBoard';
 import { ResultOverlay } from '@/components/game/ResultOverlay';
@@ -19,6 +19,8 @@ export default function GamePage() {
     markInstructionsSeen,
   } = useGameState();
   const audio = useAudio();
+  const audioRef = useRef(audio);
+  audioRef.current = audio;
 
   const [showInstructions, setShowInstructions] = useState(false);
   const [showResult, setShowResult] = useState(false);
@@ -36,10 +38,14 @@ export default function GamePage() {
     }
   }, [game.hasSeenInstructions]);
 
+  // Background music — use ref to avoid re-running on every render
   useEffect(() => {
-    audio.playBgMusic();
-    return () => audio.stopBgMusic();
-  }, [audio]);
+    audioRef.current.playBgMusic();
+    return () => {
+      audioRef.current.stopBgMusic();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleResult = useCallback(
     (correct: boolean, points: number) => {
@@ -72,7 +78,7 @@ export default function GamePage() {
   };
 
   const handleExit = () => {
-    audio.stopBgMusic();
+    audioRef.current.stopBgMusic();
     router.push('/');
   };
 
@@ -94,7 +100,7 @@ export default function GamePage() {
         />
       </div>
 
-      {/* Audio controls — fixed bottom-right, clear of notch/gestures */}
+      {/* Audio controls */}
       <div className="fixed bottom-6 right-4 flex gap-2 z-30">
         <button
           type="button"

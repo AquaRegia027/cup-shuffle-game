@@ -1,20 +1,19 @@
 'use client';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { getLevelConfig } from '@/lib/levelConfig';
 import { generateShuffleSequence } from '@/lib/shuffleAlgorithm';
-import type { GamePhase, ShuffleStep } from '@/types/game';
+import type { GamePhase } from '@/types/game';
 
 export interface EngineState {
   phase: GamePhase;
-  // positions[i] = which slot cup #i is currently in
-  positions: number[];
-  ballCupIndex: number;     // which cup (index) has the ball
-  ballSlot: number;         // which slot the ball is visually at (for ball animation)
-  ballVisible: boolean;     // is ball visible
-  liftedCups: number[];     // which cups are currently lifted
+  positions: number[];        // positions[cupIndex] = slotIndex
+  ballCupIndex: number;       // which cup has the ball
+  ballSlot: number;           // which slot the ball is visually at
+  ballVisible: boolean;
+  liftedCups: number[];       // which cup indices are lifted
   selectedCup: number | null;
   isCorrect: boolean | null;
-  shuffleProgress: string;  // "3/8" display
+  shuffleProgress: string;
 }
 
 const INITIAL: EngineState = {
@@ -30,38 +29,45 @@ const INITIAL: EngineState = {
 };
 
 export function useGameEngine(level: number) {
-  const config = getLevelConfig(level);
+  // Memoize config so it only changes when level changes
+  const config = useMemo(() => getLevelConfig(level), [level]);
+
   const [state, setState] = useState<EngineState>(INITIAL);
   const timersRef = useRef<NodeJS.Timeout[]>([]);
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const cancelledRef = useRef(false);
+  const phaseRef = useRef<GamePhase>('idle');
+
+  // Keep phaseRef in sync
+  phaseRef.current = state.phase;
 
   const clearAllTimers = useCallback(() => {
+    cancelledRef.current = true;
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
   }, []);
 
-  const delay = useCallback((ms: number): Promise<void> => {
+  const wait = useCallback((ms: number): Promise<boolean> => {
     return new Promise((resolve) => {
-      const t = setTimeout(resolve, ms);
+      const t = setTimeout(() => resolve(true), ms);
       timersRef.current.push(t);
     });
   }, []);
 
   const startRound = useCallback(async () => {
     clearAllTimers();
+    cancelledRef.current = false;
 
     const n = config.numCups;
     const ballCup = Math.floor(Math.random() * n);
     const initPositions = Array.from({ length: n }, (_, i) => i);
     const steps = generateShuffleSequence(n, config.numShuffles);
 
-    // Phase 1: Show ball in center
+    // -- Phase 1: ballShow -- show ball in the center
     setState({
       phase: 'ballShow',
       positions: initPositions,
       ballCupIndex: ballCup,
-      ballSlot: Math.floor(n / 2),  // ball starts in center-ish
+      ballSlot: Math.floor(n / 2),
       ballVisible: true,
       liftedCups: [],
       selectedCup: null,
@@ -69,9 +75,10 @@ export function useGameEngine(level: number) {
       shuffleProgress: '',
     });
 
-    await delay(800);
+    if (!(await wait(1000))) return;
+    if (cancelledRef.current) return;
 
-    // Phase 2: Ball slides to the cup's position, cup lifts to receive it
+    // -- Phase 2: ballHide -- lift target cup, slide ball under it
     setState((s) => ({
       ...s,
       phase: 'ballHide',
@@ -79,88 +86,80 @@ export function useGameEngine(level: number) {
       liftedCups: [ballCup],
     }));
 
-    await delay(600);
+    if (!(await wait(700))) return;
+    if (cancelledRef.current) return;
 
-    // Cup comes down to cover ball
+    // -- Cup comes down, ball disappears
     setState((s) => ({
       ...s,
       ballVisible: false,
       liftedCups: [],
     }));
 
-    await delay(500);
+    if (!(await wait(500))) return;
+    if (cancelledRef.current) return;
 
-    // Phase 3: Shuffling
+    // -- Phase 3: shuffling
     setState((s) => ({
       ...s,
       phase: 'shuffling',
       shuffleProgress: `0/${steps.length}`,
     }));
 
-    await delay(300);
+    if (!(await wait(400))) return;
+    if (cancelledRef.current) return;
 
-    // Execute each shuffle step
-    let currentPositions = [...initPositions];
+    // Execute shuffles one by one
+    let pos = [...initPositions];
     for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
-      // Find which cups are in positions posA and posB
-      const cupAtA = currentPositions.indexOf(step.posA);
-      const cupAtB = currentPositions.indexOf(step.posB);
+      if (cancelledRef.current) return;
 
+      const step = steps[i];
+      const cupAtA = pos.indexOf(step.posA);
+      const cupAtB = pos.indexOf(step.posB);
       if (cupAtA === -1 || cupAtB === -1) continue;
 
-      // Swap their positions
-      const newPositions = [...currentPositions];
-      newPositions[cupAtA] = step.posB;
-      newPositions[cupAtB] = step.posA;
-      currentPositions = newPositions;
+      const newPos = [...pos];
+      newPos[cupAtA] = step.posB;
+      newPos[cupAtB] = step.posA;
+      pos = newPos;
 
       setState((s) => ({
         ...s,
-        positions: newPositions,
+        positions: newPos,
         shuffleProgress: `${i + 1}/${steps.length}`,
       }));
 
-      // Wait for animation to complete
-      await delay((config.shuffleDuration + config.pauseBetween) * 1000);
+      // Wait for CSS transition + small pause
+      const waitMs = (config.shuffleDuration + config.pauseBetween) * 1000;
+      if (!(await wait(waitMs))) return;
+      if (cancelledRef.current) return;
     }
 
-    // Phase 4: Guessing
+    // -- Phase 4: guessing
     setState((s) => ({
       ...s,
       phase: 'guessing',
       shuffleProgress: '',
     }));
-  }, [config, clearAllTimers, delay]);
+  }, [config, clearAllTimers, wait]);
 
-  const selectCup = useCallback(async (cupIndex: number) => {
-    if (stateRef.current.phase !== 'guessing') return;
+  const selectCup = useCallback((cupIndex: number) => {
+    if (phaseRef.current !== 'guessing') return;
 
-    const s = stateRef.current;
-    const isCorrect = cupIndex === s.ballCupIndex;
-
-    // Reveal selected cup
-    setState((prev) => ({
-      ...prev,
-      phase: 'reveal',
-      selectedCup: cupIndex,
-      isCorrect,
-      liftedCups: [cupIndex],
-      ballVisible: isCorrect,
-      ballSlot: prev.positions[prev.ballCupIndex],
-    }));
-
-    await delay(600);
-
-    // Also reveal correct cup if wrong
-    if (!isCorrect) {
-      setState((prev) => ({
+    setState((prev) => {
+      const isCorrect = cupIndex === prev.ballCupIndex;
+      return {
         ...prev,
-        liftedCups: [cupIndex, prev.ballCupIndex],
+        phase: 'reveal',
+        selectedCup: cupIndex,
+        isCorrect,
+        liftedCups: isCorrect ? [cupIndex] : [cupIndex, prev.ballCupIndex],
         ballVisible: true,
-      }));
-    }
-  }, [delay]);
+        ballSlot: prev.positions[prev.ballCupIndex],
+      };
+    });
+  }, []);
 
   return { state, config, startRound, selectCup, clearAllTimers };
 }

@@ -3,6 +3,7 @@ import {
   createContext,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -233,18 +234,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     setPrefs((p) => ({ ...p, sfxEnabled: !p.sfxEnabled }));
   }, []);
 
+  const value = useMemo(() => ({
+    playBgMusic,
+    stopBgMusic,
+    playSfx,
+    isMusicEnabled: prefs.musicEnabled,
+    isSfxEnabled: prefs.sfxEnabled,
+    toggleMusic,
+    toggleSfx,
+  }), [playBgMusic, stopBgMusic, playSfx, prefs.musicEnabled, prefs.sfxEnabled, toggleMusic, toggleSfx]);
+
   return (
-    <AudioCtx.Provider
-      value={{
-        playBgMusic,
-        stopBgMusic,
-        playSfx,
-        isMusicEnabled: prefs.musicEnabled,
-        isSfxEnabled: prefs.sfxEnabled,
-        toggleMusic,
-        toggleSfx,
-      }}
-    >
+    <AudioCtx.Provider value={value}>
       {children}
     </AudioCtx.Provider>
   );

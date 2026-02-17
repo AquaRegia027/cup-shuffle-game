@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useCallback } from 'react';
+import { useEffect, useMemo, useCallback, useRef } from 'react';
 import { Cup } from './Cup';
 import { LevelIndicator } from './LevelIndicator';
 import { useGameEngine } from '@/hooks/useGameEngine';
@@ -15,37 +15,45 @@ interface GameBoardProps {
 export function GameBoard({ level, onResult, config }: GameBoardProps) {
   const { state, startRound, selectCup, clearAllTimers } = useGameEngine(level);
   const audio = useAudio();
+  const audioRef = useRef(audio);
+  audioRef.current = audio;
 
-  // Start round on mount
+  const prevPhaseRef = useRef('');
+  const prevProgressRef = useRef('');
+
+  // Start round on mount only
   useEffect(() => {
     startRound();
     return () => clearAllTimers();
-  }, [startRound, clearAllTimers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // SFX on phase changes
-  const prevPhaseRef = useMemo(() => ({ current: '' }), []);
   useEffect(() => {
     if (state.phase === prevPhaseRef.current) return;
     prevPhaseRef.current = state.phase;
 
     if (state.phase === 'reveal') {
       if (state.isCorrect) {
-        audio.playSfx('correct');
+        audioRef.current.playSfx('correct');
       } else {
-        audio.playSfx('wrong');
+        audioRef.current.playSfx('wrong');
       }
     }
     if (state.phase === 'ballHide') {
-      audio.playSfx('click');
+      audioRef.current.playSfx('click');
     }
-  }, [state.phase, state.isCorrect, audio, prevPhaseRef]);
+  }, [state.phase, state.isCorrect]);
 
-  // Shuffle SFX
+  // Shuffle SFX — play on each progress change
   useEffect(() => {
-    if (state.phase === 'shuffling' && state.shuffleProgress) {
-      audio.playSfx('shuffle');
+    if (state.phase !== 'shuffling') return;
+    if (state.shuffleProgress === prevProgressRef.current) return;
+    if (state.shuffleProgress && state.shuffleProgress !== `0/${state.shuffleProgress.split('/')[1]}`) {
+      audioRef.current.playSfx('shuffle');
     }
-  }, [state.shuffleProgress, state.phase, audio]);
+    prevProgressRef.current = state.shuffleProgress;
+  }, [state.shuffleProgress, state.phase]);
 
   // Report result after reveal
   useEffect(() => {
@@ -61,7 +69,6 @@ export function GameBoard({ level, onResult, config }: GameBoardProps) {
     if (typeof window === 'undefined') return 64;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    // Use smaller dimension to ensure it fits on mobile
     const maxBoard = Math.min(vw - 32, 520, vh * 0.4);
     const size = Math.floor(maxBoard / (config.numCups * 1.2));
     return Math.max(40, Math.min(80, size));
@@ -70,15 +77,15 @@ export function GameBoard({ level, onResult, config }: GameBoardProps) {
   const slotWidth = cupSize * 1.25;
   const boardWidth = slotWidth * config.numCups;
   const cupHeight = cupSize * 1.25;
-  const boardHeight = cupHeight + cupHeight * 0.75 + 20; // cup + lift space + padding
+  const boardHeight = cupHeight + cupHeight * 0.75 + 20;
   const ballSize = cupSize * 0.3;
 
   const handleCupClick = useCallback((cupIndex: number) => {
-    audio.playSfx('click');
+    audioRef.current.playSfx('click');
     selectCup(cupIndex);
-  }, [audio, selectCup]);
+  }, [selectCup]);
 
-  // Ball X position (centered in its slot)
+  // Ball X position centered in its slot
   const ballX = state.ballSlot >= 0
     ? state.ballSlot * slotWidth + cupSize / 2 - ballSize / 2
     : boardWidth / 2 - ballSize / 2;
