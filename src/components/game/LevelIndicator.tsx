@@ -11,13 +11,17 @@ export function LevelIndicator({ level, phase }: LevelIndicatorProps) {
   const tierEnd = tierStart + 9;
   const progressInTier = ((level - tierStart) / 9) * 100;
 
+  const phaseLabel =
+    phase === 'guessing' ? 'Your turn!' :
+    phase === 'shuffling' ? 'Watch closely...' :
+    phase === 'reveal' ? '' :
+    '';
+
   return (
     <div className="w-full max-w-xs">
       <div className="flex justify-between text-sm mb-1">
-        <span className="text-cream-300">Level {level}</span>
-        <span className="text-cream-400 text-xs">
-          {phase === 'idle' ? 'Ready' : phase === 'guessing' ? 'Your turn!' : ''}
-        </span>
+        <span className="text-cream-300 font-medium">Level {level}</span>
+        <span className="text-cream-400 text-xs">{phaseLabel}</span>
       </div>
       <div className="h-2 bg-sea-800 rounded-full overflow-hidden">
         <div

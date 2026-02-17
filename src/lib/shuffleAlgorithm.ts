@@ -19,7 +19,6 @@ export function generateShuffleSequence(
       (a === lastA && b === lastB) ||
       (a === lastB && b === lastA)
     );
-    // posA and posB refer to slot positions on the table
     steps.push({ posA: a, posB: b });
     lastA = a;
     lastB = b;

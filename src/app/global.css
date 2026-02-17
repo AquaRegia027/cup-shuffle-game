@@ -16,9 +16,23 @@
     overflow-x: hidden;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
   }
   body > div {
     height: 100%;
+  }
+  /* Mobile safe areas */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  /* Prevent pull-to-refresh on game page */
+  .no-overscroll {
+    overscroll-behavior-y: contain;
+  }
+  /* Touch-friendly targets */
+  .touch-manipulation {
+    touch-action: manipulation;
   }
 }
 
@@ -28,18 +42,22 @@
            flex items-center justify-center gap-2 font-semibold
            hover:bg-sea-600 active:bg-sea-700
            transition-colors duration-150 select-none;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
   .btn-secondary {
     @apply bg-cream-200 text-sea-800 px-6 py-3 rounded-btn
            flex items-center justify-center gap-2 font-semibold
            hover:bg-cream-300 active:bg-cream-400
            transition-colors duration-150 select-none;
+    touch-action: manipulation;
   }
   .btn-ghost {
     @apply bg-transparent text-cream-200 px-6 py-3 rounded-btn
            flex items-center justify-center gap-2 font-semibold
            hover:bg-sea-800/50 active:bg-sea-800
            transition-colors duration-150 border border-cream-400/30 select-none;
+    touch-action: manipulation;
   }
   .card {
     @apply bg-sea-800/60 backdrop-blur-sm rounded-2xl p-4

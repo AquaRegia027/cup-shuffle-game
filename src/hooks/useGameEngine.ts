@@ -1,181 +1,166 @@
 'use client';
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { getLevelConfig } from '@/lib/levelConfig';
 import { generateShuffleSequence } from '@/lib/shuffleAlgorithm';
-import type { CupState, GameEngineState, GamePhase, ShuffleStep } from '@/types/game';
+import type { GamePhase, ShuffleStep } from '@/types/game';
 
-function createCups(numCups: number, ballIndex: number): CupState[] {
-  return Array.from({ length: numCups }, (_, i) => ({
-    id: i,
-    position: i,
-    hasBall: i === ballIndex,
-  }));
+export interface EngineState {
+  phase: GamePhase;
+  // positions[i] = which slot cup #i is currently in
+  positions: number[];
+  ballCupIndex: number;     // which cup (index) has the ball
+  ballSlot: number;         // which slot the ball is visually at (for ball animation)
+  ballVisible: boolean;     // is ball visible
+  liftedCups: number[];     // which cups are currently lifted
+  selectedCup: number | null;
+  isCorrect: boolean | null;
+  shuffleProgress: string;  // "3/8" display
 }
 
-type EngineAction =
-  | { type: 'START'; payload: { numCups: number; ballIndex: number; steps: ShuffleStep[] } }
-  | { type: 'SET_PHASE'; payload: GamePhase }
-  | { type: 'BEGIN_SWAP'; payload: { posA: number; posB: number } }
-  | { type: 'FINISH_SWAP' }
-  | { type: 'SELECT_CUP'; payload: number };
-
-function engineReducer(state: GameEngineState, action: EngineAction): GameEngineState {
-  switch (action.type) {
-    case 'START': {
-      const cups = createCups(action.payload.numCups, action.payload.ballIndex);
-      return {
-        phase: 'reveal',
-        cups,
-        ballCupId: action.payload.ballIndex,
-        shuffleSteps: action.payload.steps,
-        currentStep: 0,
-        selectedCupId: null,
-        isCorrect: null,
-        activeSwap: null,
-      };
-    }
-    case 'SET_PHASE':
-      return { ...state, phase: action.payload, activeSwap: null };
-
-    case 'BEGIN_SWAP': {
-      // Set activeSwap so the UI can animate the two cups moving
-      return {
-        ...state,
-        activeSwap: { posA: action.payload.posA, posB: action.payload.posB },
-      };
-    }
-
-    case 'FINISH_SWAP': {
-      if (!state.activeSwap) return state;
-      const { posA, posB } = state.activeSwap;
-      // Actually swap positions of the cups at posA and posB
-      const newCups = state.cups.map((c) => {
-        if (c.position === posA) return { ...c, position: posB };
-        if (c.position === posB) return { ...c, position: posA };
-        return c;
-      });
-      return {
-        ...state,
-        cups: newCups,
-        currentStep: state.currentStep + 1,
-        activeSwap: null,
-      };
-    }
-
-    case 'SELECT_CUP': {
-      if (state.phase !== 'guessing') return state;
-      const selectedCup = state.cups.find((c) => c.id === action.payload);
-      const isCorrect = selectedCup?.hasBall ?? false;
-      return {
-        ...state,
-        phase: 'result',
-        selectedCupId: action.payload,
-        isCorrect,
-      };
-    }
-    default:
-      return state;
-  }
-}
-
-const initialState: GameEngineState = {
+const INITIAL: EngineState = {
   phase: 'idle',
-  cups: [],
-  ballCupId: 0,
-  shuffleSteps: [],
-  currentStep: 0,
-  selectedCupId: null,
+  positions: [],
+  ballCupIndex: -1,
+  ballSlot: -1,
+  ballVisible: false,
+  liftedCups: [],
+  selectedCup: null,
   isCorrect: null,
-  activeSwap: null,
+  shuffleProgress: '',
 };
 
 export function useGameEngine(level: number) {
   const config = getLevelConfig(level);
-  const [state, dispatch] = useReducer(engineReducer, initialState);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const swapTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [state, setState] = useState<EngineState>(INITIAL);
+  const timersRef = useRef<NodeJS.Timeout[]>([]);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
-  const clearTimers = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    if (swapTimerRef.current) {
-      clearTimeout(swapTimerRef.current);
-      swapTimerRef.current = null;
-    }
+  const clearAllTimers = useCallback(() => {
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
   }, []);
 
-  useEffect(() => clearTimers, [clearTimers]);
-
-  const startRound = useCallback(() => {
-    clearTimers();
-    const ballIndex = Math.floor(Math.random() * config.numCups);
-    const steps = generateShuffleSequence(config.numCups, config.numShuffles);
-    dispatch({
-      type: 'START',
-      payload: { numCups: config.numCups, ballIndex, steps },
+  const delay = useCallback((ms: number): Promise<void> => {
+    return new Promise((resolve) => {
+      const t = setTimeout(resolve, ms);
+      timersRef.current.push(t);
     });
-  }, [config, clearTimers]);
-
-  // Phase transitions: reveal -> covering -> shuffling
-  useEffect(() => {
-    if (state.phase === 'reveal') {
-      timerRef.current = setTimeout(() => {
-        dispatch({ type: 'SET_PHASE', payload: 'covering' });
-      }, config.revealTime * 1000);
-    } else if (state.phase === 'covering') {
-      timerRef.current = setTimeout(() => {
-        dispatch({ type: 'SET_PHASE', payload: 'shuffling' });
-      }, 600);
-    }
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [state.phase, config.revealTime]);
-
-  // Shuffle steps — begin a swap, wait for animation, then finish swap
-  useEffect(() => {
-    if (state.phase !== 'shuffling') return;
-    if (state.activeSwap) return; // swap in progress
-
-    if (state.currentStep >= state.shuffleSteps.length) {
-      // All shuffles done, go to guessing
-      timerRef.current = setTimeout(() => {
-        dispatch({ type: 'SET_PHASE', payload: 'guessing' });
-      }, 200);
-      return;
-    }
-
-    const step = state.shuffleSteps[state.currentStep];
-    const delay = state.currentStep === 0 ? 100 : config.pauseBetween * 1000;
-
-    timerRef.current = setTimeout(() => {
-      // Begin the swap animation
-      dispatch({ type: 'BEGIN_SWAP', payload: { posA: step.posA, posB: step.posB } });
-    }, delay);
-
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [state.phase, state.currentStep, state.activeSwap, state.shuffleSteps, config]);
-
-  // When activeSwap is set, wait for the animation duration then finish
-  useEffect(() => {
-    if (!state.activeSwap) return;
-
-    swapTimerRef.current = setTimeout(() => {
-      dispatch({ type: 'FINISH_SWAP' });
-    }, config.shuffleDuration * 1000);
-
-    return () => {
-      if (swapTimerRef.current) clearTimeout(swapTimerRef.current);
-    };
-  }, [state.activeSwap, config.shuffleDuration]);
-
-  const selectCup = useCallback((cupId: number) => {
-    dispatch({ type: 'SELECT_CUP', payload: cupId });
   }, []);
 
-  return { state, config, startRound, selectCup };
+  const startRound = useCallback(async () => {
+    clearAllTimers();
+
+    const n = config.numCups;
+    const ballCup = Math.floor(Math.random() * n);
+    const initPositions = Array.from({ length: n }, (_, i) => i);
+    const steps = generateShuffleSequence(n, config.numShuffles);
+
+    // Phase 1: Show ball in center
+    setState({
+      phase: 'ballShow',
+      positions: initPositions,
+      ballCupIndex: ballCup,
+      ballSlot: Math.floor(n / 2),  // ball starts in center-ish
+      ballVisible: true,
+      liftedCups: [],
+      selectedCup: null,
+      isCorrect: null,
+      shuffleProgress: '',
+    });
+
+    await delay(800);
+
+    // Phase 2: Ball slides to the cup's position, cup lifts to receive it
+    setState((s) => ({
+      ...s,
+      phase: 'ballHide',
+      ballSlot: initPositions[ballCup],
+      liftedCups: [ballCup],
+    }));
+
+    await delay(600);
+
+    // Cup comes down to cover ball
+    setState((s) => ({
+      ...s,
+      ballVisible: false,
+      liftedCups: [],
+    }));
+
+    await delay(500);
+
+    // Phase 3: Shuffling
+    setState((s) => ({
+      ...s,
+      phase: 'shuffling',
+      shuffleProgress: `0/${steps.length}`,
+    }));
+
+    await delay(300);
+
+    // Execute each shuffle step
+    let currentPositions = [...initPositions];
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      // Find which cups are in positions posA and posB
+      const cupAtA = currentPositions.indexOf(step.posA);
+      const cupAtB = currentPositions.indexOf(step.posB);
+
+      if (cupAtA === -1 || cupAtB === -1) continue;
+
+      // Swap their positions
+      const newPositions = [...currentPositions];
+      newPositions[cupAtA] = step.posB;
+      newPositions[cupAtB] = step.posA;
+      currentPositions = newPositions;
+
+      setState((s) => ({
+        ...s,
+        positions: newPositions,
+        shuffleProgress: `${i + 1}/${steps.length}`,
+      }));
+
+      // Wait for animation to complete
+      await delay((config.shuffleDuration + config.pauseBetween) * 1000);
+    }
+
+    // Phase 4: Guessing
+    setState((s) => ({
+      ...s,
+      phase: 'guessing',
+      shuffleProgress: '',
+    }));
+  }, [config, clearAllTimers, delay]);
+
+  const selectCup = useCallback(async (cupIndex: number) => {
+    if (stateRef.current.phase !== 'guessing') return;
+
+    const s = stateRef.current;
+    const isCorrect = cupIndex === s.ballCupIndex;
+
+    // Reveal selected cup
+    setState((prev) => ({
+      ...prev,
+      phase: 'reveal',
+      selectedCup: cupIndex,
+      isCorrect,
+      liftedCups: [cupIndex],
+      ballVisible: isCorrect,
+      ballSlot: prev.positions[prev.ballCupIndex],
+    }));
+
+    await delay(600);
+
+    // Also reveal correct cup if wrong
+    if (!isCorrect) {
+      setState((prev) => ({
+        ...prev,
+        liftedCups: [cupIndex, prev.ballCupIndex],
+        ballVisible: true,
+      }));
+    }
+  }, [delay]);
+
+  return { state, config, startRound, selectCup, clearAllTimers };
 }

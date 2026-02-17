@@ -27,110 +27,207 @@ export interface AudioContextValue {
 
 export const AudioCtx = createContext<AudioContextValue | null>(null);
 
-const SFX_FILES: Record<string, string> = {
-  click: '/audio/click.wav',
-  shuffle: '/audio/shuffle.wav',
-  correct: '/audio/correct.wav',
-  wrong: '/audio/wrong.wav',
-};
+// Synthesize sounds using Web Audio API — no external files needed
+function playClick(ctx: AudioContext) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(800, ctx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.08);
+  gain.gain.setValueAtTime(0.3, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.08);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.08);
+}
+
+function playShuffle(ctx: AudioContext) {
+  // Whoosh sound using noise + filter
+  const bufferSize = ctx.sampleRate * 0.15;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * 0.3;
+  }
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.setValueAtTime(2000, ctx.currentTime);
+  filter.frequency.exponentialRampToValueAtTime(500, ctx.currentTime + 0.15);
+  filter.Q.value = 1;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.15, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+  source.connect(filter).connect(gain).connect(ctx.destination);
+  source.start();
+}
+
+function playCorrect(ctx: AudioContext) {
+  // Two-note ascending chime
+  const notes = [523.25, 783.99]; // C5, G5
+  notes.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    const start = ctx.currentTime + i * 0.12;
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(0.3, start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.01, start + 0.4);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(start);
+    osc.stop(start + 0.4);
+  });
+}
+
+function playWrong(ctx: AudioContext) {
+  // Low buzz
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.value = 150;
+  gain.gain.setValueAtTime(0.2, ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.35);
+}
+
+// Simple background melody loop using oscillators
+function createBgMusicLoop(ctx: AudioContext, masterGain: GainNode) {
+  // Pentatonic melody notes (Hz)
+  const melody = [
+    329.63, 392.00, 440.00, 523.25, 440.00, 392.00, 329.63, 261.63,
+    293.66, 349.23, 392.00, 440.00, 392.00, 349.23, 293.66, 261.63,
+  ];
+  const noteDuration = 0.4;
+  const loopDuration = melody.length * noteDuration;
+  let startTime = ctx.currentTime + 0.1;
+  const oscillators: OscillatorNode[] = [];
+
+  function scheduleLoop() {
+    for (let i = 0; i < melody.length; i++) {
+      const osc = ctx.createOscillator();
+      const noteGain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = melody[i];
+      const t = startTime + i * noteDuration;
+      noteGain.gain.setValueAtTime(0, t);
+      noteGain.gain.linearRampToValueAtTime(0.08, t + 0.03);
+      noteGain.gain.setValueAtTime(0.08, t + noteDuration * 0.6);
+      noteGain.gain.linearRampToValueAtTime(0, t + noteDuration * 0.95);
+      osc.connect(noteGain).connect(masterGain);
+      osc.start(t);
+      osc.stop(t + noteDuration);
+      oscillators.push(osc);
+    }
+    startTime += loopDuration;
+  }
+
+  // Schedule first 2 loops, then keep scheduling
+  scheduleLoop();
+  scheduleLoop();
+
+  const intervalId = setInterval(() => {
+    if (ctx.state === 'closed') {
+      clearInterval(intervalId);
+      return;
+    }
+    scheduleLoop();
+  }, (loopDuration * 1000) * 0.8);
+
+  return () => {
+    clearInterval(intervalId);
+    oscillators.forEach((o) => { try { o.stop(); } catch {} });
+  };
+}
 
 export function AudioProvider({ children }: { children: ReactNode }) {
   const [prefs, setPrefs] = useState<AudioPrefs>({ musicEnabled: true, sfxEnabled: true });
-  const musicRef = useRef<HTMLAudioElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const buffersRef = useRef<Map<string, AudioBuffer>>(new Map());
+  const bgMusicStopRef = useRef<(() => void) | null>(null);
+  const bgMusicGainRef = useRef<GainNode | null>(null);
   const initializedRef = useRef(false);
 
-  // Load prefs from localStorage
   useEffect(() => {
     const saved = getFromStorage<AudioPrefs>(STORAGE_KEYS.AUDIO_PREFS, { musicEnabled: true, sfxEnabled: true });
     setPrefs(saved);
   }, []);
 
-  // Save prefs
   useEffect(() => {
     setToStorage(STORAGE_KEYS.AUDIO_PREFS, prefs);
   }, [prefs]);
 
-  // Initialize audio context on first user interaction
-  const initAudio = useCallback(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
-
-    // Background music
-    const music = new Audio('/audio/bg-music.mp3');
-    music.loop = true;
-    music.volume = 0.3;
-    musicRef.current = music;
-
-    // Web Audio API for SFX
-    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    audioCtxRef.current = ctx;
-
-    // Pre-load sound effects
-    for (const [name, path] of Object.entries(SFX_FILES)) {
-      fetch(path)
-        .then((res) => res.arrayBuffer())
-        .then((buf) => ctx.decodeAudioData(buf))
-        .then((decoded) => buffersRef.current.set(name, decoded))
-        .catch(() => {});
+  const ensureCtx = useCallback(() => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
     }
+    if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume();
+    }
+    return audioCtxRef.current;
   }, []);
 
-  // Resume audio context on user gesture
+  // Resume on first user interaction
   useEffect(() => {
     const handler = () => {
-      initAudio();
       if (audioCtxRef.current?.state === 'suspended') {
         audioCtxRef.current.resume();
       }
     };
-    document.addEventListener('click', handler, { once: false });
-    document.addEventListener('touchstart', handler, { once: false });
+    document.addEventListener('click', handler);
+    document.addEventListener('touchstart', handler);
     return () => {
       document.removeEventListener('click', handler);
       document.removeEventListener('touchstart', handler);
     };
-  }, [initAudio]);
+  }, []);
 
   const playBgMusic = useCallback(() => {
-    initAudio();
-    if (musicRef.current && prefs.musicEnabled) {
-      musicRef.current.play().catch(() => {});
-    }
-  }, [prefs.musicEnabled, initAudio]);
+    const ctx = ensureCtx();
+    if (bgMusicStopRef.current) return; // already playing
+    const gain = ctx.createGain();
+    gain.gain.value = 0.5;
+    gain.connect(ctx.destination);
+    bgMusicGainRef.current = gain;
+    bgMusicStopRef.current = createBgMusicLoop(ctx, gain);
+  }, [ensureCtx]);
 
   const stopBgMusic = useCallback(() => {
-    if (musicRef.current) {
-      musicRef.current.pause();
-      musicRef.current.currentTime = 0;
+    if (bgMusicStopRef.current) {
+      bgMusicStopRef.current();
+      bgMusicStopRef.current = null;
+    }
+    if (bgMusicGainRef.current) {
+      bgMusicGainRef.current.disconnect();
+      bgMusicGainRef.current = null;
     }
   }, []);
 
   const playSfx = useCallback(
     (sound: 'click' | 'shuffle' | 'correct' | 'wrong') => {
-      if (!prefs.sfxEnabled || !audioCtxRef.current) return;
-      const buffer = buffersRef.current.get(sound);
-      if (!buffer) return;
-      const source = audioCtxRef.current.createBufferSource();
-      source.buffer = buffer;
-      source.connect(audioCtxRef.current.destination);
-      source.start();
+      if (!prefs.sfxEnabled) return;
+      const ctx = ensureCtx();
+      switch (sound) {
+        case 'click': playClick(ctx); break;
+        case 'shuffle': playShuffle(ctx); break;
+        case 'correct': playCorrect(ctx); break;
+        case 'wrong': playWrong(ctx); break;
+      }
     },
-    [prefs.sfxEnabled],
+    [prefs.sfxEnabled, ensureCtx],
   );
 
   const toggleMusic = useCallback(() => {
     setPrefs((p) => {
       const next = { ...p, musicEnabled: !p.musicEnabled };
       if (!next.musicEnabled) {
-        musicRef.current?.pause();
-      } else {
-        musicRef.current?.play().catch(() => {});
+        stopBgMusic();
       }
       return next;
     });
-  }, []);
+  }, [stopBgMusic]);
 
   const toggleSfx = useCallback(() => {
     setPrefs((p) => ({ ...p, sfxEnabled: !p.sfxEnabled }));

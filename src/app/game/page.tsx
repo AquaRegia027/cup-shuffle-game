@@ -30,14 +30,12 @@ export default function GamePage() {
 
   const config = getLevelConfig(game.currentLevel);
 
-  // Show instructions on first play
   useEffect(() => {
     if (!game.hasSeenInstructions) {
       setShowInstructions(true);
     }
   }, [game.hasSeenInstructions]);
 
-  // Start background music
   useEffect(() => {
     audio.playBgMusic();
     return () => audio.stopBgMusic();
@@ -47,14 +45,12 @@ export default function GamePage() {
     (correct: boolean, points: number) => {
       setLastResult({ correct, points });
       setShowResult(true);
-
       recordResult({
         level: game.currentLevel,
         correct,
         points,
         timestamp: Date.now(),
       });
-
       if (correct) {
         addPoints(points);
       }
@@ -86,10 +82,10 @@ export default function GamePage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-[100dvh] flex flex-col safe-bottom">
       <Header title={`Level ${game.currentLevel}`} showBack />
 
-      <div className="flex-1 flex items-center justify-center p-4">
+      <div className="flex-1 flex items-center justify-center p-3 sm:p-6">
         <GameBoard
           key={gameKey}
           level={game.currentLevel}
@@ -98,21 +94,21 @@ export default function GamePage() {
         />
       </div>
 
-      {/* Audio controls */}
-      <div className="fixed bottom-4 right-4 flex gap-2">
+      {/* Audio controls — fixed bottom-right, clear of notch/gestures */}
+      <div className="fixed bottom-6 right-4 flex gap-2 z-30">
         <button
           type="button"
-          onClick={audio.toggleMusic}
-          className="w-10 h-10 rounded-full bg-sea-800/80 flex items-center justify-center text-cream-300 hover:bg-sea-700"
+          onClick={() => { audio.playSfx('click'); audio.toggleMusic(); }}
+          className="w-11 h-11 sm:w-10 sm:h-10 rounded-full bg-sea-800/90 backdrop-blur flex items-center justify-center text-cream-300 active:bg-sea-700 touch-manipulation"
           title={audio.isMusicEnabled ? 'Mute music' : 'Enable music'}
         >
           {audio.isMusicEnabled ? (
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
               <path d="M10 2L5 7H2v6h3l5 5V2z" />
               <path d="M14 6.5a4 4 0 010 7M16 4a7 7 0 010 12" fill="none" stroke="currentColor" strokeWidth="1.5" />
             </svg>
           ) : (
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
               <path d="M10 2L5 7H2v6h3l5 5V2z" />
               <path d="M14 8l4 4M14 12l4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
             </svg>
@@ -120,25 +116,20 @@ export default function GamePage() {
         </button>
         <button
           type="button"
-          onClick={audio.toggleSfx}
-          className="w-10 h-10 rounded-full bg-sea-800/80 flex items-center justify-center text-cream-300 hover:bg-sea-700"
+          onClick={() => { audio.playSfx('click'); audio.toggleSfx(); }}
+          className="w-11 h-11 sm:w-10 sm:h-10 rounded-full bg-sea-800/90 backdrop-blur flex items-center justify-center text-cream-300 active:bg-sea-700 touch-manipulation"
           title={audio.isSfxEnabled ? 'Mute SFX' : 'Enable SFX'}
         >
           <span className="text-xs font-bold">{audio.isSfxEnabled ? 'SFX' : 'OFF'}</span>
         </button>
       </div>
 
-      {/* Instructions modal */}
       <InstructionsModal
         isOpen={showInstructions}
-        onClose={() => {
-          setShowInstructions(false);
-          markInstructionsSeen();
-        }}
+        onClose={() => { setShowInstructions(false); markInstructionsSeen(); }}
         onStartGame={handleStartFromInstructions}
       />
 
-      {/* Result overlay */}
       {showResult && lastResult && (
         <ResultOverlay
           isCorrect={lastResult.correct}

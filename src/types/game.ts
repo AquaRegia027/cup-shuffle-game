@@ -8,36 +8,18 @@ export interface LevelConfig {
   points: number;
 }
 
-export interface CupState {
-  id: number;
-  position: number;  // which slot this cup is currently in (0, 1, 2, ...)
-  hasBall: boolean;
-}
-
 export interface ShuffleStep {
-  posA: number;  // swap cups at position A
-  posB: number;  // with cup at position B
+  posA: number;
+  posB: number;
 }
 
 export type GamePhase =
   | 'idle'
-  | 'reveal'
-  | 'covering'
+  | 'ballShow'       // ball visible in center
+  | 'ballHide'       // ball slides under a cup
   | 'shuffling'
   | 'guessing'
-  | 'result';
-
-export interface GameEngineState {
-  phase: GamePhase;
-  cups: CupState[];
-  ballCupId: number;
-  shuffleSteps: ShuffleStep[];
-  currentStep: number;
-  selectedCupId: number | null;
-  isCorrect: boolean | null;
-  // For animation: which two positions are currently swapping
-  activeSwap: { posA: number; posB: number } | null;
-}
+  | 'reveal';        // result reveal
 
 export interface LevelResult {
   level: number;
