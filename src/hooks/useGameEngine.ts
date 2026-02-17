@@ -7,7 +7,7 @@ import type { CupState, GameEngineState, GamePhase, ShuffleStep } from '@/types/
 function createCups(numCups: number, ballIndex: number): CupState[] {
   return Array.from({ length: numCups }, (_, i) => ({
     id: i,
-    x: i,
+    position: i,
     hasBall: i === ballIndex,
   }));
 }
@@ -15,7 +15,8 @@ function createCups(numCups: number, ballIndex: number): CupState[] {
 type EngineAction =
   | { type: 'START'; payload: { numCups: number; ballIndex: number; steps: ShuffleStep[] } }
   | { type: 'SET_PHASE'; payload: GamePhase }
-  | { type: 'SHUFFLE_STEP' }
+  | { type: 'BEGIN_SWAP'; payload: { posA: number; posB: number } }
+  | { type: 'FINISH_SWAP' }
   | { type: 'SELECT_CUP'; payload: number };
 
 function engineReducer(state: GameEngineState, action: EngineAction): GameEngineState {
@@ -30,34 +31,37 @@ function engineReducer(state: GameEngineState, action: EngineAction): GameEngine
         currentStep: 0,
         selectedCupId: null,
         isCorrect: null,
+        activeSwap: null,
       };
     }
     case 'SET_PHASE':
-      return { ...state, phase: action.payload };
-    case 'SHUFFLE_STEP': {
-      if (state.currentStep >= state.shuffleSteps.length) {
-        return { ...state, phase: 'guessing' };
-      }
-      const step = state.shuffleSteps[state.currentStep];
-      const newCups = state.cups.map((c) => ({ ...c }));
+      return { ...state, phase: action.payload, activeSwap: null };
 
-      // Find the two cups by their current index references
-      const cupA = newCups.find((c) => c.x === step.cupIndexA);
-      const cupB = newCups.find((c) => c.x === step.cupIndexB);
+    case 'BEGIN_SWAP': {
+      // Set activeSwap so the UI can animate the two cups moving
+      return {
+        ...state,
+        activeSwap: { posA: action.payload.posA, posB: action.payload.posB },
+      };
+    }
 
-      if (cupA && cupB) {
-        // Swap their visual x positions
-        const tempX = cupA.x;
-        cupA.x = cupB.x;
-        cupB.x = tempX;
-      }
-
+    case 'FINISH_SWAP': {
+      if (!state.activeSwap) return state;
+      const { posA, posB } = state.activeSwap;
+      // Actually swap positions of the cups at posA and posB
+      const newCups = state.cups.map((c) => {
+        if (c.position === posA) return { ...c, position: posB };
+        if (c.position === posB) return { ...c, position: posA };
+        return c;
+      });
       return {
         ...state,
         cups: newCups,
         currentStep: state.currentStep + 1,
+        activeSwap: null,
       };
     }
+
     case 'SELECT_CUP': {
       if (state.phase !== 'guessing') return state;
       const selectedCup = state.cups.find((c) => c.id === action.payload);
@@ -82,32 +86,37 @@ const initialState: GameEngineState = {
   currentStep: 0,
   selectedCupId: null,
   isCorrect: null,
+  activeSwap: null,
 };
 
 export function useGameEngine(level: number) {
   const config = getLevelConfig(level);
   const [state, dispatch] = useReducer(engineReducer, initialState);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const swapTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const clearTimer = useCallback(() => {
+  const clearTimers = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
+    if (swapTimerRef.current) {
+      clearTimeout(swapTimerRef.current);
+      swapTimerRef.current = null;
+    }
   }, []);
 
-  // Cleanup on unmount
-  useEffect(() => clearTimer, [clearTimer]);
+  useEffect(() => clearTimers, [clearTimers]);
 
   const startRound = useCallback(() => {
-    clearTimer();
+    clearTimers();
     const ballIndex = Math.floor(Math.random() * config.numCups);
     const steps = generateShuffleSequence(config.numCups, config.numShuffles);
     dispatch({
       type: 'START',
       payload: { numCups: config.numCups, ballIndex, steps },
     });
-  }, [config, clearTimer]);
+  }, [config, clearTimers]);
 
   // Phase transitions: reveal -> covering -> shuffling
   useEffect(() => {
@@ -120,24 +129,49 @@ export function useGameEngine(level: number) {
         dispatch({ type: 'SET_PHASE', payload: 'shuffling' });
       }, 600);
     }
-    return clearTimer;
-  }, [state.phase, config.revealTime, clearTimer]);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [state.phase, config.revealTime]);
 
-  // Shuffle steps — each step fires after shuffleDuration + pauseBetween
+  // Shuffle steps — begin a swap, wait for animation, then finish swap
   useEffect(() => {
     if (state.phase !== 'shuffling') return;
+    if (state.activeSwap) return; // swap in progress
+
     if (state.currentStep >= state.shuffleSteps.length) {
-      dispatch({ type: 'SET_PHASE', payload: 'guessing' });
+      // All shuffles done, go to guessing
+      timerRef.current = setTimeout(() => {
+        dispatch({ type: 'SET_PHASE', payload: 'guessing' });
+      }, 200);
       return;
     }
-    const delay = state.currentStep === 0
-      ? 150
-      : (config.shuffleDuration + config.pauseBetween) * 1000;
+
+    const step = state.shuffleSteps[state.currentStep];
+    const delay = state.currentStep === 0 ? 100 : config.pauseBetween * 1000;
+
     timerRef.current = setTimeout(() => {
-      dispatch({ type: 'SHUFFLE_STEP' });
+      // Begin the swap animation
+      dispatch({ type: 'BEGIN_SWAP', payload: { posA: step.posA, posB: step.posB } });
     }, delay);
-    return clearTimer;
-  }, [state.phase, state.currentStep, state.shuffleSteps.length, config, clearTimer]);
+
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [state.phase, state.currentStep, state.activeSwap, state.shuffleSteps, config]);
+
+  // When activeSwap is set, wait for the animation duration then finish
+  useEffect(() => {
+    if (!state.activeSwap) return;
+
+    swapTimerRef.current = setTimeout(() => {
+      dispatch({ type: 'FINISH_SWAP' });
+    }, config.shuffleDuration * 1000);
+
+    return () => {
+      if (swapTimerRef.current) clearTimeout(swapTimerRef.current);
+    };
+  }, [state.activeSwap, config.shuffleDuration]);
 
   const selectCup = useCallback((cupId: number) => {
     dispatch({ type: 'SELECT_CUP', payload: cupId });

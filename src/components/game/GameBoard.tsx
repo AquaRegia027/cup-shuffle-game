@@ -16,17 +16,16 @@ export function GameBoard({ level, onResult, config }: GameBoardProps) {
   const { state, startRound, selectCup } = useGameEngine(level);
   const audio = useAudio();
 
-  // Start round on mount
   useEffect(() => {
     startRound();
   }, [startRound]);
 
-  // Play shuffle sound during shuffling
+  // Play shuffle sound when a swap begins
   useEffect(() => {
-    if (state.phase === 'shuffling' && state.currentStep > 0) {
+    if (state.activeSwap) {
       audio.playSfx('shuffle');
     }
-  }, [state.phase, state.currentStep, audio]);
+  }, [state.activeSwap, audio]);
 
   // Handle result
   useEffect(() => {
@@ -43,99 +42,121 @@ export function GameBoard({ level, onResult, config }: GameBoardProps) {
     }
   }, [state.phase, state.isCorrect, config.points, onResult, audio]);
 
-  // Calculate cup size based on number of cups and viewport
+  // Cup sizing
   const cupSize = useMemo(() => {
     const vw = typeof window !== 'undefined' ? window.innerWidth : 400;
-    const maxBoardWidth = Math.min(vw - 40, 560);
-    const sizeFromCount = Math.floor(maxBoardWidth / (config.numCups * 1.15));
-    return Math.max(44, Math.min(80, sizeFromCount));
+    const maxBoard = Math.min(vw - 48, 520);
+    const size = Math.floor(maxBoard / (config.numCups * 1.3));
+    return Math.max(48, Math.min(80, size));
   }, [config.numCups]);
 
-  const gap = cupSize + 12;
-  const boardWidth = gap * config.numCups;
-  const boardHeight = cupSize * 2.2;
+  const slotWidth = cupSize * 1.3;
+  const boardWidth = slotWidth * config.numCups;
+  const boardHeight = cupSize * 2.5;
 
   const isRevealed = state.phase === 'reveal';
   const isResult = state.phase === 'result';
   const isGuessing = state.phase === 'guessing';
 
+  // For each cup, determine swap animation props
+  const getCupSwapProps = (cupPosition: number) => {
+    if (!state.activeSwap) {
+      return { swapTarget: null, swapDirection: null as 'over' | 'under' | null };
+    }
+    const { posA, posB } = state.activeSwap;
+    if (cupPosition === posA) {
+      return { swapTarget: posB, swapDirection: 'over' as const };
+    }
+    if (cupPosition === posB) {
+      return { swapTarget: posA, swapDirection: 'under' as const };
+    }
+    return { swapTarget: null, swapDirection: null as 'over' | 'under' | null };
+  };
+
+  // Determine which cups should be lifted
+  const shouldLift = (cup: typeof state.cups[0]) => {
+    if (isRevealed) return true; // Lift all cups during reveal to show ball
+    if (isResult && state.selectedCupId === cup.id) return true; // Lift selected cup
+    if (isResult && cup.hasBall) return true; // Also reveal where ball actually was
+    return false;
+  };
+
   return (
-    <div className="flex flex-col items-center gap-6 w-full">
+    <div className="flex flex-col items-center gap-5 w-full">
       <LevelIndicator level={level} phase={state.phase} />
 
-      {/* Phase indicator text */}
-      <div className="text-center h-8">
+      {/* Phase indicator */}
+      <div className="text-center h-8 flex items-center justify-center">
         {state.phase === 'reveal' && (
-          <p className="text-accent-gold font-semibold text-lg animate-pulse">
+          <p className="text-amber-400 font-semibold text-lg animate-pulse">
             Watch the ball!
           </p>
         )}
         {state.phase === 'covering' && (
-          <p className="text-cream-300 text-lg">Covering...</p>
+          <p className="text-slate-400 text-lg">Covering...</p>
         )}
         {state.phase === 'shuffling' && (
-          <p className="text-cream-300 text-lg">
-            Shuffling... <span className="text-sea-300">{state.currentStep}/{state.shuffleSteps.length}</span>
+          <p className="text-slate-300 text-lg">
+            Shuffling...
           </p>
         )}
         {state.phase === 'guessing' && (
-          <p className="text-sea-300 font-semibold text-lg animate-pulse">
-            Which cup has the ball? Tap it!
+          <p className="text-blue-300 font-semibold text-lg animate-pulse">
+            Pick a cup!
           </p>
         )}
         {state.phase === 'result' && state.isCorrect && (
-          <p className="text-accent-correct font-bold text-xl animate-bounce-in">
+          <p className="text-green-400 font-bold text-xl">
             Correct! +{config.points} pts
           </p>
         )}
         {state.phase === 'result' && state.isCorrect === false && (
-          <p className="text-accent-wrong font-bold text-xl animate-shake">
+          <p className="text-red-400 font-bold text-xl">
             Wrong!
           </p>
         )}
       </div>
 
-      {/* Cup playing area */}
-      <div className="relative flex items-center justify-center" style={{ width: '100%' }}>
-        {/* Table surface */}
-        <div
-          className="absolute bottom-0 rounded-xl"
-          style={{
-            width: boardWidth + 40,
-            height: 32,
-            background: 'linear-gradient(180deg, rgba(30,80,60,0.4) 0%, rgba(20,60,45,0.6) 100%)',
-            border: '1px solid rgba(255,255,255,0.06)',
-          }}
-        />
+      {/* Game area */}
+      <div className="flex items-end justify-center" style={{ width: '100%' }}>
+        <div className="relative" style={{ width: boardWidth, height: boardHeight }}>
+          {/* Table surface */}
+          <div
+            className="absolute bottom-0 left-1/2 rounded-lg"
+            style={{
+              width: boardWidth + 32,
+              height: 8,
+              transform: 'translateX(-50%)',
+              background: 'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
+            }}
+          />
 
-        {/* Cups container */}
-        <div
-          className="relative"
-          style={{
-            width: boardWidth,
-            height: boardHeight,
-          }}
-        >
-          {state.cups.map((cup) => (
-            <Cup
-              key={cup.id}
-              id={cup.id}
-              x={cup.x}
-              hasBall={cup.hasBall}
-              isRevealed={isRevealed}
-              isSelected={state.selectedCupId === cup.id}
-              isResult={isResult}
-              onClick={selectCup}
-              disabled={!isGuessing}
-              shuffleDuration={config.shuffleDuration}
-              cupSize={cupSize}
-            />
-          ))}
+          {/* Cups */}
+          {state.cups.map((cup) => {
+            const { swapTarget, swapDirection } = getCupSwapProps(cup.position);
+            return (
+              <Cup
+                key={cup.id}
+                id={cup.id}
+                position={cup.position}
+                hasBall={cup.hasBall}
+                lifted={shouldLift(cup)}
+                isSelected={state.selectedCupId === cup.id}
+                isResult={isResult}
+                onClick={selectCup}
+                disabled={!isGuessing}
+                cupSize={cupSize}
+                slotWidth={slotWidth}
+                swapTarget={swapTarget}
+                swapDuration={config.shuffleDuration}
+                swapDirection={swapDirection}
+              />
+            );
+          })}
         </div>
       </div>
 
-      {/* Cups count indicator */}
-      <p className="text-cream-400 text-xs opacity-60">
+      <p className="text-slate-500 text-xs mt-2">
         {config.numCups} cups &middot; {config.numShuffles} shuffles
       </p>
     </div>

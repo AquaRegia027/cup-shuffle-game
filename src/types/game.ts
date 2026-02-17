@@ -10,13 +10,13 @@ export interface LevelConfig {
 
 export interface CupState {
   id: number;
-  x: number;
+  position: number;  // which slot this cup is currently in (0, 1, 2, ...)
   hasBall: boolean;
 }
 
 export interface ShuffleStep {
-  cupIndexA: number;
-  cupIndexB: number;
+  posA: number;  // swap cups at position A
+  posB: number;  // with cup at position B
 }
 
 export type GamePhase =
@@ -35,6 +35,8 @@ export interface GameEngineState {
   currentStep: number;
   selectedCupId: number | null;
   isCorrect: boolean | null;
+  // For animation: which two positions are currently swapping
+  activeSwap: { posA: number; posB: number } | null;
 }
 
 export interface LevelResult {
