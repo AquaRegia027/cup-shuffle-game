@@ -40,10 +40,18 @@ function engineReducer(state: GameEngineState, action: EngineAction): GameEngine
       }
       const step = state.shuffleSteps[state.currentStep];
       const newCups = state.cups.map((c) => ({ ...c }));
-      // Swap x positions
-      const xA = newCups[step.cupIndexA].x;
-      newCups[step.cupIndexA].x = newCups[step.cupIndexB].x;
-      newCups[step.cupIndexB].x = xA;
+
+      // Find the two cups by their current index references
+      const cupA = newCups.find((c) => c.x === step.cupIndexA);
+      const cupB = newCups.find((c) => c.x === step.cupIndexB);
+
+      if (cupA && cupB) {
+        // Swap their visual x positions
+        const tempX = cupA.x;
+        cupA.x = cupB.x;
+        cupB.x = tempX;
+      }
+
       return {
         ...state,
         cups: newCups,
@@ -101,7 +109,7 @@ export function useGameEngine(level: number) {
     });
   }, [config, clearTimer]);
 
-  // Phase transitions
+  // Phase transitions: reveal -> covering -> shuffling
   useEffect(() => {
     if (state.phase === 'reveal') {
       timerRef.current = setTimeout(() => {
@@ -110,21 +118,24 @@ export function useGameEngine(level: number) {
     } else if (state.phase === 'covering') {
       timerRef.current = setTimeout(() => {
         dispatch({ type: 'SET_PHASE', payload: 'shuffling' });
-      }, 500);
+      }, 600);
     }
     return clearTimer;
   }, [state.phase, config.revealTime, clearTimer]);
 
-  // Shuffle steps
+  // Shuffle steps — each step fires after shuffleDuration + pauseBetween
   useEffect(() => {
     if (state.phase !== 'shuffling') return;
     if (state.currentStep >= state.shuffleSteps.length) {
       dispatch({ type: 'SET_PHASE', payload: 'guessing' });
       return;
     }
+    const delay = state.currentStep === 0
+      ? 150
+      : (config.shuffleDuration + config.pauseBetween) * 1000;
     timerRef.current = setTimeout(() => {
       dispatch({ type: 'SHUFFLE_STEP' });
-    }, state.currentStep === 0 ? 100 : (config.shuffleDuration + config.pauseBetween) * 1000);
+    }, delay);
     return clearTimer;
   }, [state.phase, state.currentStep, state.shuffleSteps.length, config, clearTimer]);
 
