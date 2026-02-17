@@ -26,8 +26,8 @@ async function main() {
   await download(`${BASE_URL}/icon-gen`, path.join(publicDir, 'icon.png'));
   console.log('Saved icon.png');
 
-  console.log('Downloading splash from', `${BASE_URL}/api/og`);
-  await download(`${BASE_URL}/api/og`, path.join(publicDir, 'splash.png'));
+  console.log('Downloading splash from', `${BASE_URL}/splash-gen`);
+  await download(`${BASE_URL}/splash-gen`, path.join(publicDir, 'splash.png'));
   console.log('Saved splash.png');
 }
 
