@@ -38,3 +38,16 @@ export default function RootLayout({
     </html>
   );
 }
+
+
+import { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  other: {
+    'base:app_id': '69b195165733177ff4ffe1bf',
+  },
+};
+
+export default function Home() {
+  return (<div>{/* Your page content */}</div>);
+}
