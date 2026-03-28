@@ -29,6 +29,9 @@ export default function RootLayout({
 }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <meta name="base:app_id" content="69b19516573177ff4fe1bf" />
+      </head>
       <body>
         <AppProviders>{children}</AppProviders>
       </body>
