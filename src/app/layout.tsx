@@ -30,7 +30,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <meta name="base:app_id" content="69b19516573177ff4fe1bf" />
+       <meta name="base:app_id" content="69b195165733177ff4ffe1bf" />
       </head>
       <body>
         <AppProviders>{children}</AppProviders>
